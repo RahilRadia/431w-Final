@@ -1,0 +1,226 @@
+CREATE TABLE Raw_Data (
+    Name VARCHAR(100),
+    Age INT,
+    Gender VARCHAR(7),
+    Blood_Type VARCHAR(5),
+    Medical_Condition VARCHAR(100),
+    Date_of_Admission DATE,
+    Doctor VARCHAR(100),
+    Hospital VARCHAR(100),
+    Insurance_Provider VARCHAR(100),
+    Billing_Amount NUMERIC(10, 2),
+    Room_Number VARCHAR(20),
+    Admission_Type VARCHAR(20),
+    Discharge_Date DATE,
+    Medication TEXT,
+    Test_Results TEXT
+);
+
+ \COPY raw_data (name, age, gender, blood_type, medical_condition, date_of_admission, doctor, hospital, insurance_provider, billing_amount, room_number, admission_type, discharge_date, medication, test_results) FROM 'ENTER PATH TO RAW DATA HERE' DELIMITER ',' CSV HEADER;
+
+
+CREATE TABLE Insurance_Provider (
+    insuranceID SERIAL PRIMARY KEY,
+    name VARCHAR(100)
+);
+
+INSERT INTO Insurance_Provider (name)
+SELECT DISTINCT "insurance_provider" AS name
+FROM Raw_Data;
+
+ALTER TABLE Raw_Data
+ADD COLUMN insuranceID INT;
+
+UPDATE Raw_Data rd
+SET insuranceID = (
+    SELECT ip.insuranceID
+    FROM Insurance_Provider ip
+    WHERE ip.name = rd.Insurance_Provider
+);
+
+CREATE TABLE Patient (
+	patientID SERIAL PRIMARY KEY,
+	name VARCHAR (100),
+	gender VARCHAR(7),
+	age INT
+);
+
+INSERT INTO Patient (name, gender, age)
+SELECT DISTINCT
+    Name,
+    Gender,
+    Age
+FROM Raw_Data;
+
+ALTER TABLE Patient
+ADD COLUMN insuranceID INT,
+ADD CONSTRAINT fk_insuranceID FOREIGN KEY (insuranceID) REFERENCES Insurance_Provider(insuranceID);
+
+UPDATE Patient p
+SET insuranceID = (
+    SELECT rd.insuranceID
+    FROM Raw_Data rd
+    WHERE rd.Name = p.name
+    AND rd.Gender = p.gender
+    AND rd.Age = p.age
+    ORDER BY rd.Date_of_Admission DESC
+    LIMIT 1
+);
+
+ALTER TABLE Raw_Data
+ADD COLUMN patientID INT;
+
+UPDATE Raw_Data rd
+SET patientID = (
+    SELECT p.patientID
+    FROM Patient p
+    WHERE p.name = rd.Name
+    AND p.gender = rd.Gender
+    AND p.age = rd.Age
+);
+
+CREATE TABLE Hospital (
+    hospitalID SERIAL PRIMARY KEY,
+    name VARCHAR(100)
+);
+
+INSERT INTO Hospital (name)
+SELECT DISTINCT Hospital
+FROM Raw_Data;
+
+ALTER TABLE Hospital
+ADD COLUMN total_rooms INT;
+
+UPDATE Hospital h
+SET total_rooms = (
+    SELECT COUNT(DISTINCT Room_Number)
+    FROM Raw_Data rd
+    WHERE rd.Hospital = h.name
+);
+
+ALTER TABLE Raw_Data
+ADD COLUMN hospitalID INT;
+
+UPDATE Raw_Data rd
+SET hospitalID = (
+    SELECT h.hospitalID
+    FROM hospital h
+    WHERE h.name = rd.Hospital
+);
+
+CREATE TABLE Rooms (
+    hospitalID INT,
+    room_number INT,
+    patientID INT,
+    PRIMARY KEY (hospitalID, room_number),
+    FOREIGN KEY (hospitalID) REFERENCES Hospital(hospitalID),
+    FOREIGN KEY (patientID) REFERENCES Patient(patientID)
+);
+
+INSERT INTO Rooms (hospitalID, room_number, patientID)
+SELECT DISTINCT ON (rd.hospitalID, rd.room_number)
+    rd.hospitalID,
+    CAST(rd.room_number AS INT), 
+    rd.patientID
+FROM Raw_Data rd
+ORDER BY rd.hospitalID, rd.room_number, rd.Date_of_Admission DESC;
+
+CREATE TABLE Doctor (
+	doctorID SERIAL PRIMARY KEY,
+	name VARCHAR(100),
+	hospitalID INT,
+	FOREIGN KEY (hospitalID) REFERENCES Hospital(hospitalID)
+);
+
+INSERT INTO Doctor (name, hospitalID)
+SELECT DISTINCT
+    Doctor,
+    hospitalID
+FROM Raw_Data;
+
+ALTER TABLE Raw_Data
+ADD COLUMN doctorID INT;
+
+UPDATE Raw_Data rd
+SET doctorID = (
+    SELECT d.doctorID
+    FROM Doctor d
+    WHERE d.name = rd.Doctor
+    AND d.hospitalID = rd.hospitalID
+);
+
+CREATE TABLE Pharmacy (
+	pharmacyID SERIAL PRIMARY KEY,
+	doctorID INT,
+	patientID INT,
+	medication VARCHAR(100),
+	FOREIGN KEY (doctorID) REFERENCES Doctor(doctorID),
+	FOREIGN KEY (patientID) REFERENCES Patient(patientID)
+);
+
+CREATE TABLE Admission_Records (
+    patientID INT,
+    hospitalID INT,
+    doctorID INT,
+    admission_type VARCHAR(50),
+    admission_date DATE,
+    discharge_date DATE,
+    PRIMARY KEY (patientID, admission_date),
+    FOREIGN KEY (patientID) REFERENCES Patient(patientID),
+    FOREIGN KEY (hospitalID) REFERENCES Hospital(hospitalID),
+    FOREIGN KEY (doctorID) REFERENCES Doctor(doctorID)
+);
+
+INSERT INTO Admission_Records (patientID, hospitalID, doctorID, admission_type, admission_date, discharge_date)
+SELECT
+    rd.patientID,
+    rd.hospitalID,
+    rd.doctorID,
+    rd.Admission_Type,
+    rd.Date_of_Admission,
+    rd.Discharge_Date
+FROM Raw_Data rd;
+
+CREATE TABLE Billing (
+	transactionID SERIAL PRIMARY KEY,
+	insuranceID INT,
+	hospitalID INT,
+	patientID INT,
+	billing_amount DECIMAL(10,2),
+	FOREIGN KEY (insuranceID) REFERENCES Insurance_Provider(insuranceID),
+	FOREIGN KEY (hospitalID) REFERENCES Hospital(hospitalID),
+	FOREIGN KEY (patientID) REFERENCES Patient(patientID)
+);
+
+CREATE TABLE Medical_Records (
+    patientID INT,
+    blood_type VARCHAR(3),
+    patient_condition VARCHAR(50),
+    test_results VARCHAR(50),
+    medication VARCHAR(100),
+    PRIMARY KEY (patientID),
+    FOREIGN KEY (patientID) REFERENCES Patient(patientID)
+);
+
+INSERT INTO Medical_Records (patientID, blood_type, patient_condition, test_results, medication)
+SELECT
+    rd.patientID,
+    rd.Blood_Type,
+    rd.Medical_Condition,
+    rd.Test_Results,
+    rd.Medication
+FROM (
+    SELECT
+        patientID,
+        Blood_Type,
+        Medical_Condition,
+        Test_Results,
+        Medication,
+        ROW_NUMBER() OVER (PARTITION BY patientID ORDER BY Date_of_Admission DESC) AS recent
+    FROM Raw_Data
+) rd
+WHERE rd.recent = 1;
+
+DROP TABLE raw_data;
+
+
