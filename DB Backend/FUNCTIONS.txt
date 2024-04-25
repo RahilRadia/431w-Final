@@ -1,0 +1,222 @@
+CREATE OR REPLACE FUNCTION SendScript(dname VARCHAR(100), pid INT, phid INT) RETURNS SETOF Pharmacy AS $$
+DECLARE
+    medication VARCHAR(100);
+BEGIN
+    BEGIN
+        SELECT INTO medication medical_records.medication
+        FROM medical_records
+        WHERE medical_records.patientID = pid
+        LIMIT 1;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE EXCEPTION 'No medication found for patient ID %', pid;
+    END;
+
+    BEGIN
+        INSERT INTO Pharmacy (doctorID, patientID, medication)
+        VALUES (
+            (SELECT doctorID FROM Doctor WHERE name = dname),
+            pid,
+            medication
+        );
+    EXCEPTION
+        WHEN others THEN
+            RAISE EXCEPTION 'Error occurred while inserting data into Pharmacy table: %', SQLERRM;
+    END;
+
+    RETURN QUERY SELECT * FROM Pharmacy;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION RemoveAdmissionRecord(patient_name VARCHAR(100)) RETURNS BOOLEAN AS $$
+DECLARE
+    num_removed INT := 0;
+BEGIN
+    DELETE FROM Admission_Records
+    WHERE patientID IN (SELECT patientID FROM Patient WHERE name = patient_name);
+
+    num_removed := FOUND;
+
+    RETURN num_removed > 0; 
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION UpdateCondition(patientID INT, new_condition VARCHAR) RETURNS VOID AS $$
+BEGIN
+    UPDATE Medical_Records
+    SET patient_condition = new_condition
+    WHERE patientID = patientID;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION UpdateMedication(patientID INT, new_medication VARCHAR) RETURNS VOID AS $$
+BEGIN
+    UPDATE Medical_Records
+    SET medication = new_medication
+    WHERE patientID = patientID;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION UpdateTestResults(patientID INT, new_test_results VARCHAR) RETURNS VOID AS $$
+BEGIN
+    UPDATE Medical_Records
+    SET test_results = new_test_results
+    WHERE patientID = patientID;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION GetMedicalRecords(patient_name VARCHAR) RETURNS TABLE (
+    patientID INT,
+    blood_type VARCHAR(3),
+    patient_condition VARCHAR(50),
+    test_results VARCHAR(50),
+    medication VARCHAR(100)
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.patientID,
+        m.blood_type,
+        m.patient_condition,
+        m.test_results,
+        m.medication
+    FROM 
+        Patient p
+    JOIN 
+        Medical_Records m ON p.patientID = m.patientID
+    WHERE 
+        p.name = patient_name;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION SortByDateOfAdmission(hospital_name VARCHAR) RETURNS TABLE (
+    patient_name VARCHAR,
+    admission_type VARCHAR,
+    admission_date DATE
+) AS $$
+BEGIN
+
+    RETURN QUERY
+    SELECT P.name, A.admission_type, A.admission_date
+    FROM Admission_Records A
+    JOIN Hospital H ON A.hospitalID = H.hospitalID
+    JOIN Patient P ON A.patientID = P.patientID
+    WHERE H.name = hospital_name
+    ORDER BY A.admission_date;
+
+END; $$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION HospitalTotalPatients(hospital_name VARCHAR) RETURNS INT
+AS $$
+DECLARE
+    total_patients INT;
+BEGIN
+
+    SELECT COUNT(*) INTO total_patients
+    FROM Admission_Records A
+    JOIN Hospital H ON A.hospitalID = H.hospitalID
+    WHERE H.name = hospital_name;
+    
+    RETURN total_patients;
+END; $$ LANGUAGE plpgsql;
+
+read -p "Enter hospital name: " name
+$PSQL -c "SELECT HospitalTotalPatients('$name')";;
+
+
+
+CREATE OR REPLACE FUNCTION FindPatientRoom(patient_name VARCHAR) RETURNS TABLE (
+    hospital_name VARCHAR,
+    room_number INT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT H.name AS hospital_name, R.room_number
+    FROM Rooms R
+    JOIN Hospital H ON R.hospitalID = H.hospitalID
+    WHERE R.patientID = (SELECT patientID FROM Patient WHERE name = patient_name);
+END;$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION DoctorsAtHospitals() RETURNS TABLE (
+    hospital_name VARCHAR,
+    num_doctors INT
+) AS $$
+BEGIN
+
+    RETURN QUERY
+    SELECT H.name AS hospital_name, COUNT(D.doctorID) AS num_doctors
+    FROM Doctor D
+    JOIN Hospital H ON D.hospitalD = H.hospitalID
+    GROUP BY H.name
+    ORDER BY num_doctors DESC
+    LIMIT 10;
+END;$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION BillingAmountForPatient(patient_name VARCHAR) RETURNS DOUBLE PRECISION
+AS $$
+DECLARE
+    total_billing_amount DOUBLE PRECISION;
+BEGIN
+
+    SELECT SUM(A.billing_amount) INTO total_billing_amount
+    FROM AdmissionsRecords A
+    JOIN Patient P ON A.patientID = P.patientID
+    WHERE P.name = patient_name;
+   
+    RETURN total_billing_amount;
+
+END;$$ LANGUAGE plpgsql;
+
+
+
+CREATE OR REPLACE FUNCTION ProcessBilling(patient_name VARCHAR, billing_amount NUMERIC) RETURNS TABLE (
+    transactionID INT,
+    insuranceID INT,
+    hospitalID INT,
+    patientID INT,
+    total_amount NUMERIC
+) AS $$
+DECLARE
+    patient_id INT;
+BEGIN
+    SELECT patientID INTO patient_id
+    FROM Patient
+    WHERE name = patient_name;
+
+    INSERT INTO Billing (insuranceID, hospitalID, patientID, billing_amount)
+    VALUES (
+        (SELECT insuranceID FROM Admission_Records WHERE patientID = patient_id),
+        (SELECT hospitalID FROM Admission_Records WHERE patientID = patient_id),
+        patient_id,
+        billing_amount
+    )
+    RETURNING * INTO transactionID, insuranceID, hospitalID, patientID, total_amount;
+
+    UPDATE Admission_Records
+    SET cost_total = cost_total - billing_amount
+    WHERE patientID = patient_id;
+
+    COMMIT;
+    
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE EXCEPTION 'An Error has occured while processing ths billing transaction: %', SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
