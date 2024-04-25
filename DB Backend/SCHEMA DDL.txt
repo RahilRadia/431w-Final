@@ -165,21 +165,24 @@ CREATE TABLE Admission_Records (
     admission_type VARCHAR(50),
     admission_date DATE,
     discharge_date DATE,
+    total_cost NUMERIC(10,2),
     PRIMARY KEY (patientID, admission_date),
     FOREIGN KEY (patientID) REFERENCES Patient(patientID),
     FOREIGN KEY (hospitalID) REFERENCES Hospital(hospitalID),
     FOREIGN KEY (doctorID) REFERENCES Doctor(doctorID)
 );
 
-INSERT INTO Admission_Records (patientID, hospitalID, doctorID, admission_type, admission_date, discharge_date)
+INSERT INTO Admission_Records (patientID, hospitalID, doctorID, admission_type, admission_date, discharge_date, total_cost)
 SELECT
     rd.patientID,
     rd.hospitalID,
     rd.doctorID,
     rd.Admission_Type,
     rd.Date_of_Admission,
-    rd.Discharge_Date
+    rd.Discharge_Date,
+    rd.Billing_Amount
 FROM Raw_Data rd;
+
 
 CREATE TABLE Billing (
 	transactionID SERIAL PRIMARY KEY,
