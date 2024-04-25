@@ -1,0 +1,102 @@
+#!/bin/bash
+PSQL="psql -U postgres -d hospital -w password"
+
+
+
+while true; do
+    clear
+    echo "Welcome to the Hospital Network DB System!"
+    echo "Please Select an Option:"
+    echo "1. SEND A SCRIPT TO THE PHARMACY"
+    echo "2. REMOVE AN ADMISSIONS RECORD"
+    echo "3. UPDATE PATIENT MEDICAL RECORDS"
+    echo "4. SEARCH MEDICAL RECORDS"
+    echo "5. FIND HOSPITAL'S TOTAL PATIENTS"
+    echo "6. SORT BY DATE OF ADMISSION"
+    echo "7. FIND PATIENT ROOM"
+    echo "8. DOCTORS AT EACH HOSPITAL"
+    echo "9. BILLING AMOUNT PER PATIENT"
+    echo "10. PROCESS BILLING"
+    echo "12. EXIT"
+    echo ""
+    read -p "Enter your choice: " choice
+
+     case $choice in
+        1)
+            read -p "Enter Doctor's Name: " dname
+            read -p "Enter the patient ID: " patientID
+            read -p "Enter pharmacy ID: " pharmacyID
+            read -p "Enter medication name: " medication
+            $PSQL -c "Select * From SendScript('$dname', '$patientID', '$pharmacyID');";;
+
+        2)
+            read -p "Enter patient name for removal from the records: " pname
+            $PSQL -c "SELECT RemoveAdmissionRecord('$pname')";;
+
+        3)
+            while true; do
+    		clear
+                echo "Update Medical Records Menu:"
+                echo "1. Update Patient Condition"
+                echo "2. Update Medication"
+                echo "3. Update Test Results"
+                echo "4. Exit"
+                read -p "Enter your choice: " choice
+                case $choice in
+        	    1) 
+			read -p "Enter the patient's ID: " patientID
+   			read -p "Enter name of new condition: " new_condition
+    			$PSQL -c "SELECT UpdateCondition('$patientID', '$new_condition');";;
+        	    2) 
+			read -p "Enter the patient's ID: " patientID
+    			read -p "Enter the name of the new medication: " new_medication
+    			$PSQL -c "SELECT UpdateMedication('$patientID', '$new_medication');";;
+        	    3) 
+    			read -p "Enter the patient ID: " patientID
+    			read -p "Enter the new test results: " new_test_results
+    			$PSQL -c "SELECT UpdateTestResults('$patientID', '$new_test_results');";;
+        	    4) exit;;
+        	    *) echo "Invalid choice";;
+    	        esac
+    	        read -p "Press Enter to continue..."
+	    done
+
+        4)
+            read -p "Enter patient name: " patient_name
+            $PSQL -c "SELECT * FROM GetMedicalRecords('$patient_name');";;
+
+        5)
+	    read -p "Enter hospital name: " hospital_name
+	    $PSQL -c "SELECT HospitalTotalPatients('$hospital_name');";;
+
+
+        6) 
+	    read -p "Enter hospital name: " name
+	    $PSQL -c "SELECT * FROM SortByDateOfAdmission('$name');";;
+
+
+        7) 
+	    read -p "Enter patient name: " patient_name
+	    $PSQL -c "SELECT * FROM FindPatientRoom('$patient_name');";;
+
+        8) 
+	    $PSQL -c "SELECT * FROM DoctorsAtHospitals();";;
+
+        9) 
+	    read -p "Enter patient name: " patient_name
+	    $PSQL -c "SELECT BillingAmountForPatient('$patient_name');";;
+
+        10) 
+	    read -p "Enter patient name: " patient_name
+	    read -p "Enter amount you would like to pay: " billing_amount
+	    $PSQL -c "SELECT * FROM ProcessBilling('$patient_name', '$billing_amount');";;
+
+
+        11) echo "Logging out"; exit;;
+
+        *) echo "Invalid selection: Please enter a selection between 1 and 12.";;
+    esac
+
+    read -p "Press Enter to continue..."
+done
+
